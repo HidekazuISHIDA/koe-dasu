@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>こえだす</title>
+<meta name="description" content="入力した文字をすぐに日本語で読み上げるWebアプリ">
+<meta name="theme-color" content="#1f6feb">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5b6573;
+    --line: #d8dde4; --accent: #1f6feb; --accent-text: #fff; --warn: #d1242f;
+    --chip: #eef2f7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1216; --card: #181c22; --text: #e8ecf1; --muted: #9aa4b2;
+      --line: #2c333d; --accent: #4c8dff; --chip: #232932; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px 16px 40px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  h1 { font-size: 20px; margin: 0; }
+  .status { font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+  .dot.wait { background: #e3b341; } .dot.speak { background: #2da44e; animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+  textarea { width: 100%; min-height: 150px; resize: vertical; font-size: 24px; line-height: 1.5;
+    padding: 12px; border-radius: 10px; border: 2px solid var(--line); background: var(--bg); color: var(--text); }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  .progress { height: 6px; background: var(--chip); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+  .progress > div { height: 100%; width: 0; background: var(--accent); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  button { font: inherit; font-size: 17px; padding: 12px 16px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--chip); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); flex: 1; font-weight: 600; }
+  button:active { transform: scale(.98); }
+  .hint { font-size: 13px; color: var(--muted); margin-top: 8px; }
+  h2 { font-size: 15px; margin: 0 0 10px; color: var(--muted); font-weight: 600; }
+  .phrases { display: flex; flex-wrap: wrap; gap: 8px; }
+  .phrases button { font-size: 16px; padding: 10px 14px; position: relative; }
+  .phrases.editing button { border-color: var(--warn); }
+  .phrases.editing button::after { content: "×"; color: var(--warn); margin-left: 8px; font-weight: 700; }
+  label.set { display: grid; grid-template-columns: 9em 1fr 4.5em; align-items: center; gap: 10px; margin: 10px 0; font-size: 15px; }
+  .seg-row { display: grid; grid-template-columns: 9em 1fr; align-items: center; gap: 10px; margin: 10px 0; font-size: 15px; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button { flex: 1; border: 0; border-radius: 0; padding: 10px; font-size: 16px; background: var(--chip); }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  @media (max-width: 480px) { .seg-row { grid-template-columns: 1fr; } }
+  label.set output { text-align: right; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; }
+  select { font: inherit; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); width: 100%; }
+  .check { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 15px; }
+  .check input { width: 20px; height: 20px; }
+  ul.history { list-style: none; margin: 0; padding: 0; }
+  ul.history li { padding: 10px 4px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 16px; display: flex; gap: 8px; }
+  ul.history li:last-child { border-bottom: 0; }
+  ul.history li .t { color: var(--muted); font-size: 12px; flex: none; padding-top: 3px; }
+  details summary { cursor: pointer; font-weight: 600; color: var(--muted); }
+  .warn { color: var(--warn); font-size: 14px; }
+  @media (max-width: 480px) {
+    label.set { grid-template-columns: 1fr 4em; }
+    label.set > span { grid-column: 1 / -1; }
+    textarea { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🗣️ こえだす</h1>
+    <div class="status"><span class="dot" id="dot"></span><span id="statusText">待機中</span></div>
+  </header>
+
+  <section class="card">
+    <textarea id="input" placeholder="ここに入力すると、指定秒数後に読み上げます" autofocus></textarea>
+    <div class="progress"><div id="bar"></div></div>
+    <div class="row">
+      <button class="primary" id="speakBtn">▶ 今すぐ読む</button>
+      <button id="stopBtn">■ 停止</button>
+      <button id="clearBtn">消去</button>
+    </div>
+    <div class="hint">Enterで即読み上げ ／ Shift+Enterで改行 ／ Escで停止</div>
+    <div class="warn" id="warn" hidden></div>
+  </section>
+
+  <section class="card">
+    <h2>よく使うフレーズ（タップで読み上げ）</h2>
+    <div class="phrases" id="phrases"></div>
+    <div class="row">
+      <button id="addPhrase">＋ 入力欄の文を登録</button>
+      <button id="editPhrases">編集</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>設定</h2>
+    <label class="check"><input type="checkbox" id="auto"> 入力が止まったら自動で読み上げ</label>
+    <label class="set"><span>読み上げまでの秒数</span><input type="range" id="delay" min="0.3" max="5" step="0.1"><output id="delayOut"></output></label>
+    <label class="set"><span>話す速さ</span><input type="range" id="rate" min="0.5" max="2" step="0.05"><output id="rateOut"></output></label>
+    <label class="set"><span>声の高さ</span><input type="range" id="pitch" min="0.5" max="2" step="0.05"><output id="pitchOut"></output></label>
+    <label class="set"><span>音量</span><input type="range" id="volume" min="0" max="1" step="0.05"><output id="volumeOut"></output></label>
+    <div class="set seg-row"><span>声の種類</span>
+      <div class="seg" id="gender">
+        <button data-g="female">女性</button><button data-g="male">男性</button><button data-g="all">すべて</button>
+      </div>
+    </div>
+    <label class="set"><span>声</span><select id="voice" style="grid-column: span 2"></select></label>
+    <label class="check"><input type="checkbox" id="clearAfter"> 読み上げ後に入力欄を消す</label>
+    <div class="row"><button id="testBtn">声を試す</button></div>
+    <div class="hint" id="voiceHint"></div>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>読み上げ履歴（タップで再生）</summary>
+      <ul class="history" id="history"></ul>
+      <div class="row"><button id="clearHistory">履歴を消す</button></div>
+    </details>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const synth = window.speechSynthesis;
+  const KEY = 'koedasu-v1';
+
+  const defaults = {
+    auto: true, gender: 'female', delay: 1.5, rate: 1.0, pitch: 1.0, volume: 1.0, voice: '', clearAfter: true,
+    phrases: ['少々お待ちください', '喉の調子が悪くて、うまく話せません', 'はい', 'いいえ', 'ありがとうございます', 'すみません、もう一度お願いします'],
+    history: []
+  };
+  let state = { ...defaults };
+  try { Object.assign(state, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+
+  if (!synth) {
+    $('warn').hidden = false;
+    $('warn').textContent = 'このブラウザは音声読み上げに対応していません。Chrome / Edge / Safari をお使いください。';
+    return;
+  }
+
+  // ---------- 音声の選択 ----------
+  let voices = [];
+  // 自然に聞こえやすい声を優先する
+  const score = (v) => {
+    const n = v.name;
+    if (/Eddy|Flo|Grandma|Grandpa|Reed|Rocko|Sandy|Shelley/i.test(n)) return 10; // macOS の個性的な声は後ろへ
+    if (/Natural|Online/i.test(n)) return 100;         // Edge: Nanami / Keita (Neural)
+    if (/Google/i.test(n)) return 80;                    // Chrome: Google 日本語
+    if (/Premium|Enhanced|拡張|プレミアム/i.test(n)) return 70; // Apple 高品質版
+    if (/Kyoko|O-ren|Otoya|Hattori/i.test(n)) return 60;
+    return v.localService ? 30 : 40;
+  };
+  // 声の名前から性別を推定（ブラウザは性別情報を提供しないため）
+  const MALE = /Keita|Daichi|Naoki|Masaru|Ichiro|Otoya|Hattori|Eddy|Reed|Rocko|Grandpa|male|男性/i;
+  const FEMALE = /Nanami|Aoi|Mayu|Shiori|Haruka|Ayumi|Sayaka|Kyoko|O-ren|Google|Flo|Grandma|Sandy|Shelley|female|女性/i;
+  const genderOf = (v) => MALE.test(v.name) && !/female/i.test(v.name) ? 'male' : FEMALE.test(v.name) ? 'female' : '';
+  const gLabel = { male: '（男性）', female: '（女性）', '': '' };
+
+  function loadVoices() {
+    voices = synth.getVoices().filter(v => /^ja(-|_|$)/i.test(v.lang)).sort((a, b) => score(b) - score(a));
+    renderVoiceSelect();
+  }
+  function renderVoiceSelect() {
+    const sel = $('voice');
+    sel.innerHTML = '';
+    document.querySelectorAll('#gender button').forEach(b => b.classList.toggle('on', b.dataset.g === state.gender));
+    if (!voices.length) {
+      sel.innerHTML = '<option value="">（日本語の声が見つかりません）</option>';
+      $('voiceHint').textContent = '日本語音声が無い場合、端末の設定で日本語の読み上げ音声を追加してください。';
+      return;
+    }
+    let list = state.gender === 'all' ? voices : voices.filter(v => genderOf(v) === state.gender);
+    if (!list.length) {
+      list = voices;
+      $('voiceHint').textContent = (state.gender === 'male' ? '男性' : '女性') + 'の声がこの端末に見つからないため、すべての声を表示しています。';
+    }
+    list.forEach(v => {
+      const o = document.createElement('option');
+      o.value = v.voiceURI; o.textContent = v.name + gLabel[genderOf(v)] + (score(v) >= 70 ? ' ★' : '');
+      sel.appendChild(o);
+    });
+    if (!list.some(v => v.voiceURI === state.voice)) { state.voice = list[0].voiceURI; save(); }
+    sel.value = state.voice;
+    if (list !== voices || state.gender === 'all')
+    $('voiceHint').textContent = '★ は自然に聞こえやすい声です。Edge の「Nanami」が特に自然です。Mac/iPhone は「設定 › アクセシビリティ › 読み上げコンテンツ › 声」で高品質版を追加できます。';
+  }
+  loadVoices();
+  synth.addEventListener?.('voiceschanged', loadVoices);
+  if (synth.onvoiceschanged !== undefined) synth.onvoiceschanged = loadVoices;
+
+  // ---------- 読み上げ ----------
+  const setStatus = (mode, text) => { $('dot').className = 'dot ' + (mode || ''); $('statusText').textContent = text; };
+  let lastSpoken = '';
+
+  function speak(text, { fromInput = false } = {}) {
+    text = (text || '').trim();
+    if (!text) return;
+    cancelTimer();
+    synth.cancel();
+    // 長文で途中停止するブラウザ対策に、文ごとに分割
+    const parts = text.match(/[^。！？!?\n]+[。！？!?\n]*/g) || [text];
+    const voice = voices.find(v => v.voiceURI === state.voice);
+    parts.forEach((p, i) => {
+      const u = new SpeechSynthesisUtterance(p.trim());
+      u.lang = 'ja-JP';
+      if (voice) u.voice = voice;
+      u.rate = state.rate; u.pitch = state.pitch; u.volume = state.volume;
+      if (i === 0) u.onstart = () => setStatus('speak', '読み上げ中');
+      if (i === parts.length - 1) u.onend = u.onerror = () => setStatus('', '待機中');
+      synth.speak(u);
+    });
+    // Safari で稀に一時停止状態になる対策
+    if (synth.paused) synth.resume();
+    lastSpoken = text;
+    addHistory(text);
+    if (fromInput && state.clearAfter) { $('input').value = ''; lastSpoken = ''; }
+  }
+
+  function addHistory(text) {
+    state.history = [{ text, at: Date.now() }, ...state.history.filter(h => h.text !== text)].slice(0, 30);
+    save(); renderHistory();
+  }
+
+  // ---------- 自動読み上げのタイマー ----------
+  let timer = null, rafId = null, startAt = 0, composing = false;
+  function cancelTimer() {
+    clearTimeout(timer); cancelAnimationFrame(rafId); timer = null;
+    $('bar').style.width = '0';
+    if (!synth.speaking) setStatus('', '待機中');
+  }
+  function schedule() {
+    cancelTimer();
+    const text = $('input').value.trim();
+    if (!state.auto || composing || !text || text === lastSpoken) return;
+    const ms = state.delay * 1000;
+    startAt = performance.now();
+    setStatus('wait', `${state.delay}秒後に読み上げ`);
+    const tick = () => {
+      const p = Math.min(1, (performance.now() - startAt) / ms);
+      $('bar').style.width = (p * 100) + '%';
+      if (p < 1) rafId = requestAnimationFrame(tick);
+    };
+    tick();
+    timer = setTimeout(() => speak($('input').value, { fromInput: true }), ms);
+  }
+
+  const input = $('input');
+  // 日本語変換中（IME）は読み上げない
+  input.addEventListener('compositionstart', () => { composing = true; cancelTimer(); });
+  input.addEventListener('compositionend', () => { composing = false; schedule(); });
+  input.addEventListener('input', (e) => { if (!e.isComposing) schedule(); });
+  input.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); speak(input.value, { fromInput: true }); }
+    if (e.key === 'Escape') { synth.cancel(); cancelTimer(); }
+  });
+
+  $('speakBtn').onclick = () => { speak(input.value, { fromInput: true }); input.focus(); };
+  $('stopBtn').onclick = () => { synth.cancel(); cancelTimer(); setStatus('', '待機中'); };
+  $('clearBtn').onclick = () => { input.value = ''; lastSpoken = ''; cancelTimer(); input.focus(); };
+
+  // iOS などで最初のタップ時に音声を有効化
+  const unlock = () => {
+    const u = new SpeechSynthesisUtterance(' '); u.volume = 0; synth.speak(u);
+    document.removeEventListener('pointerdown', unlock);
+  };
+  document.addEventListener('pointerdown', unlock);
+
+  // ---------- フレーズ ----------
+  let editing = false;
+  function renderPhrases() {
+    const box = $('phrases'); box.innerHTML = '';
+    box.classList.toggle('editing', editing);
+    state.phrases.forEach((p, i) => {
+      const b = document.createElement('button');
+      b.textContent = p;
+      b.onclick = () => {
+        if (editing) { state.phrases.splice(i, 1); save(); renderPhrases(); }
+        else speak(p);
+      };
+      box.appendChild(b);
+    });
+    $('editPhrases').textContent = editing ? '完了' : '編集';
+  }
+  $('addPhrase').onclick = () => {
+    const t = input.value.trim() || lastSpoken || (state.history[0] && state.history[0].text);
+    if (!t) { alert('入力欄に登録したい文を入れてください'); return; }
+    if (!state.phrases.includes(t)) state.phrases.push(t);
+    save(); renderPhrases();
+  };
+  $('editPhrases').onclick = () => { editing = !editing; renderPhrases(); };
+
+  // ---------- 履歴 ----------
+  function renderHistory() {
+    const ul = $('history'); ul.innerHTML = '';
+    state.history.forEach(h => {
+      const li = document.createElement('li');
+      const d = new Date(h.at);
+      li.innerHTML = `<span class="t">${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}</span><span></span>`;
+      li.lastChild.textContent = h.text;
+      li.onclick = () => speak(h.text);
+      ul.appendChild(li);
+    });
+  }
+  $('clearHistory').onclick = () => { state.history = []; save(); renderHistory(); };
+
+  // ---------- 設定 ----------
+  const fmt = { delay: v => v.toFixed(1) + '秒', rate: v => v.toFixed(2) + '倍', pitch: v => v.toFixed(2), volume: v => Math.round(v * 100) + '%' };
+  Object.keys(fmt).forEach(k => {
+    const el = $(k), out = $(k + 'Out');
+    el.value = state[k]; out.textContent = fmt[k](+state[k]);
+    el.oninput = () => { state[k] = +el.value; out.textContent = fmt[k](state[k]); save(); };
+  });
+  $('auto').checked = state.auto;
+  $('auto').onchange = (e) => { state.auto = e.target.checked; save(); if (!state.auto) cancelTimer(); };
+  $('clearAfter').checked = state.clearAfter;
+  $('clearAfter').onchange = (e) => { state.clearAfter = e.target.checked; save(); };
+  $('voice').onchange = (e) => { state.voice = e.target.value; save(); };
+  document.querySelectorAll('#gender button').forEach(b => b.onclick = () => {
+    state.gender = b.dataset.g; save(); renderVoiceSelect();
+    speak(b.dataset.g === 'male' ? '男性の声で読み上げます。' : 'この声で読み上げます。');
+  });
+  $('testBtn').onclick = () => speak('こんにちは。この声で読み上げます。');
+
+  renderPhrases(); renderHistory();
+
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>
